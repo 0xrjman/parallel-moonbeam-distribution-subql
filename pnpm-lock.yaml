@@ -8,6 +8,7 @@ specifiers:
   '@polkadot/api': ^9
   '@polkadot/api-augment': ^9.13.4
   '@polkadot/types': ^9
+  '@polkadot/util-crypto': ^10.3.1
   '@subql/cli': 1.11.0
   '@subql/frontier-evm-processor': 0.1.2
   '@subql/types': 1.7.1
@@ -21,6 +22,7 @@ dependencies:
   '@ethersproject/bytes': 5.7.0
   '@polkadot/api-augment': 9.13.4
   '@polkadot/types': 9.13.4
+  '@polkadot/util-crypto': 10.3.1
   ethers: 5.7.2
   moonbeam-types-bundle: 2.0.9
 
@@ -1168,7 +1170,7 @@ packages:
       '@polkadot/api-augment': 9.13.4
       '@polkadot/api-base': 9.13.4
       '@polkadot/api-derive': 9.13.4
-      '@polkadot/keyring': 10.3.1
+      '@polkadot/keyring': 10.3.1_6oi4u37k26xh6tzmq2ogppmvnm
       '@polkadot/rpc-augment': 9.13.4
       '@polkadot/rpc-core': 9.13.4
       '@polkadot/rpc-provider': 9.13.4
@@ -1186,9 +1188,11 @@ packages:
       - supports-color
       - utf-8-validate
 
-  /@polkadot/keyring/10.3.1:
+  /@polkadot/keyring/10.3.1_6oi4u37k26xh6tzmq2ogppmvnm:
     resolution: {integrity: sha512-xBkUtyQ766NVS1ccSYbQssWpxAhSf0uwkw9Amj8TFhu++pnZcVm+EmM2VczWqgOkmWepO7MGRjEXeOIw1YUGiw==}
     engines: {node: '>=14.0.0'}
+    peerDependencies:
+      '@polkadot/util-crypto': 10.3.1
     dependencies:
       '@babel/runtime': 7.20.13
       '@polkadot/util': 10.3.1
@@ -1236,7 +1240,7 @@ packages:
     engines: {node: '>=14.0.0'}
     dependencies:
       '@babel/runtime': 7.20.13
-      '@polkadot/keyring': 10.3.1
+      '@polkadot/keyring': 10.3.1_6oi4u37k26xh6tzmq2ogppmvnm
       '@polkadot/types': 9.13.4
       '@polkadot/types-support': 9.13.4
       '@polkadot/util': 10.3.1
@@ -1302,7 +1306,7 @@ packages:
     engines: {node: '>=14.0.0'}
     dependencies:
       '@babel/runtime': 7.20.13
-      '@polkadot/keyring': 10.3.1
+      '@polkadot/keyring': 10.3.1_6oi4u37k26xh6tzmq2ogppmvnm
       '@polkadot/types-augment': 9.13.4
       '@polkadot/types-codec': 9.13.4
       '@polkadot/types-create': 9.13.4
