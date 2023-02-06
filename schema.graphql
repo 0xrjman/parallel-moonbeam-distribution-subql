@@ -5,7 +5,6 @@ type SpecVersion @entity {
 
 type DistributedTransaction @entity {
   id: ID!
-  crowdloanId: String!
   txHash: String! @index
   from: String! @index
   to: String! @index
@@ -17,7 +16,6 @@ type DistributedTransaction @entity {
 
 type ClaimedTransaction @entity {
   id: ID!
-  crowdloanId: String!
   txHash: String! @index
   from: String! @index
   to: String! @index
@@ -28,6 +26,12 @@ type ClaimedTransaction @entity {
 }
 
 type TotalClaimed @entity {
+  id: ID!
+  blockHeight: Int!
+  amount: String!
+}
+
+type TotalDistributed @entity {
   id: ID!
   blockHeight: Int!
   amount: String!

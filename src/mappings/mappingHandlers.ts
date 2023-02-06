@@ -10,18 +10,11 @@ type TransferCallArgs = [string, string, BigNumber] & {
     value: BigNumber;
 };
 
-const MAIN_REWARDS_ADDRESS = '0x508eb96dc541c8E88A8A3fce4618B5fB9fA3f209';
 const DISTRIBUTION_ADDRESS = '0x1F695652967615cdE319FDF59dD65B22c380EDC1';
 
-const MOONBEAM_CROWDLOAN_ID = '2004-12KHAurRWMFJyxU57S9pQerHsKLCwvWKM1d3dKZVx7gSfkFJ-1';
+const isDistributionTx = (from: string) => from === DISTRIBUTION_ADDRESS
 
-const PRE_CLAIMED_AMOUNT = '4367295495494540000000000'
-
-const isDistributionTx = (from: string) =>
-    from === DISTRIBUTION_ADDRESS
-
-const isClaimTx = (from: string, to: string) =>
-    from === MAIN_REWARDS_ADDRESS && to === DISTRIBUTION_ADDRESS
+const isClaimTx = (to: string) => to === DISTRIBUTION_ADDRESS
 
 let specVersion: SpecVersion;
 export async function handleBlock(block: SubstrateBlock): Promise<void> {
@@ -54,7 +47,6 @@ export async function handleTransferEvent(event: SubstrateEvent): Promise<void> 
         logger.info(`handle distribution call ${blockNumber}-${txHash}`)
         const disTransaction = DistributedTransaction.create({
             id: blockNumber + '-' + idx,
-            crowdloanId: MOONBEAM_CROWDLOAN_ID,
             txHash,
             from,
             to,
@@ -64,15 +56,29 @@ export async function handleTransferEvent(event: SubstrateEvent): Promise<void> 
             success: true,
         });
         logger.info(`vest transaction: ${JSON.stringify(disTransaction)}`);
-        await disTransaction.save();
+        let totalDistributed = await TotalDistributed.get(DISTRIBUTION_ADDRESS);
+        if (totalDistributed) {
+            totalDistributed.blockHeight = blockNumber;
+            totalDistributed.amount = (BigInt(totalDistributed.amount) + BigInt(value)).toString();
+        } else {
+            totalDistributed = TotalClaimed.create({
+                id: DISTRIBUTION_ADDRESS,
+                blockHeight: blockNumber,
+                amount: (BigInt(value)).toString()
+            });
+        }
+        logger.info(`totalDistributed: ${JSON.stringify(totalDistributed)}`);
+        await Promise.all([
+            disTransaction.save(),
+            totalDistributed.save(),
+        ]);
         return
     }
 
-    if (isClaimTx(from, to)) {
+    if (isClaimTx(to)) {
         logger.info(`handle claim call ${blockNumber}-${txHash}`)
         const claimedTransaction = ClaimedTransaction.create({
             id: blockNumber + '-' + idx,
-            crowdloanId: MOONBEAM_CROWDLOAN_ID,
             txHash,
             from,
             to,
@@ -90,7 +96,7 @@ export async function handleTransferEvent(event: SubstrateEvent): Promise<void> 
             totalClaimed = TotalClaimed.create({
                 id: DISTRIBUTION_ADDRESS,
                 blockHeight: blockNumber,
-                amount: (BigInt(PRE_CLAIMED_AMOUNT) + BigInt(value)).toString()
+                amount: (BigInt(value)).toString()
             });
         }
         logger.info(`totalClaimed: ${JSON.stringify(totalClaimed)}`);
@@ -108,10 +114,9 @@ export async function handleFrontierEvmCall(call: FrontierEvmCall<TransferCallAr
 
     const func = call.data ? hexDataSlice(call.data, 0, 4) : undefined
     // Collect distribute transaction
-    if (call.from === DISTRIBUTION_ADDRESS) {
+    if (isDistributionTx(call.from)) {
         const disTransaction = DistributedTransaction.create({
             id: call.hash,
-            crowdloanId: MOONBEAM_CROWDLOAN_ID,
             txHash: call.hash,
             from: call.from,
             to: call.to,
@@ -121,21 +126,31 @@ export async function handleFrontierEvmCall(call: FrontierEvmCall<TransferCallAr
             success: call.success,
         });
         logger.info(`vest transaction: ${JSON.stringify(disTransaction)}`);
-
-        await disTransaction.save();
+        let totalDistributed = await TotalDistributed.get(DISTRIBUTION_ADDRESS);
+        if (totalDistributed) {
+            totalDistributed.blockHeight = call.blockNumber;
+            totalDistributed.amount = (BigInt(totalDistributed.amount) + BigInt(call.value.toString())).toString();
+        } else {
+            totalDistributed = TotalClaimed.create({
+                id: DISTRIBUTION_ADDRESS,
+                blockHeight: call.blockNumber,
+                amount: (BigInt(call.value.toString())).toString()
+            });
+        }
+        logger.info(`totalDistributed: ${JSON.stringify(totalDistributed)}`);
+        await Promise.all([
+            disTransaction.save(),
+            totalDistributed.save(),
+        ]);
         return
     }
 
     // Collect the claim transaction
-    if (
-        call.from === MAIN_REWARDS_ADDRESS
-        && call.to === DISTRIBUTION_ADDRESS
-    ) {
+    if (isClaimTx(call.to)) {
         const idx = `${call.blockNumber}-${call.hash}`
         logger.info(`handle claim call ${idx}`)
         const claimedTransaction = ClaimedTransaction.create({
             id: idx,
-            crowdloanId: MOONBEAM_CROWDLOAN_ID,
             txHash: call.hash,
             from: call.from,
             to: call.to,
@@ -153,7 +168,7 @@ export async function handleFrontierEvmCall(call: FrontierEvmCall<TransferCallAr
             totalClaimed = TotalClaimed.create({
                 id: DISTRIBUTION_ADDRESS,
                 blockHeight: call.blockNumber,
-                amount: (BigInt(PRE_CLAIMED_AMOUNT) + BigInt(call.value.toString())).toString()
+                amount: (BigInt(call.value.toString())).toString()
             });
         }
         logger.info(`totalClaimed: ${JSON.stringify(totalClaimed)}`);
