@@ -1,13 +1,22 @@
+// Follow https://github.com/parallel-finance/acala-distribution-subql/blob/e8514498b5f487199a5d74f80ac8dbc8be374e4f/src/mappings/mappingHandlers.ts
 import { SubstrateBlock, SubstrateEvent } from "@subql/types";
 import { SpecVersion, ClaimedTransaction, DistributedTransaction, TotalClaimed, TotalDistributed } from "../types";
 import { FrontierEvmCall } from "@subql/frontier-evm-processor"
 import { BigNumber } from 'ethers'
-import { hexDataSlice } from "@ethersproject/bytes";
 
 type TransferCallArgs = [string, string, BigNumber] & {
     from: string;
     to: string;
     value: BigNumber;
+};
+
+type Tx = {
+    id: string; // tx hash
+    from: string;
+    to: string;
+    amount: string;
+    blockHeight: number;
+    timestamp: Date;
 };
 
 const DISTRIBUTION_ADDRESS = '0x1F695652967615cdE319FDF59dD65B22c380EDC1';
@@ -30,81 +39,116 @@ export async function handleBlock(block: SubstrateBlock): Promise<void> {
     // logger.info(`handle block # ${block.block.header.number.toString()}`)
 }
 
-export async function handleTransferEvent(event: SubstrateEvent): Promise<void> {
-    const {
-        idx,
-        event: { data: [signer, dest, amount] },
-        hash,
-        block: { block: { header: { number: blockHeight } } },
-    } = event;
-    const from = signer.toString()
-    const to = dest.toString()
-    const value = amount.toString()
-    const txHash = hash.toString()
-    const blockNumber = blockHeight.toNumber()
-
-    if (isDistributionTx(from)) {
-        logger.info(`handle distribution call ${blockNumber}-${txHash}`)
-        const disTransaction = DistributedTransaction.create({
-            id: blockNumber + '-' + idx,
-            txHash,
-            from,
-            to,
-            value,
-            func: undefined,
-            blockHeight: blockNumber,
+async function handleDistribution(tx: Tx): Promise<void> {
+    try {
+        logger.info(`handle distribution call ${tx.blockHeight}-${tx.id}`)
+        let txKey = tx.blockHeight + '-' + tx.id
+        let disTransaction = await DistributedTransaction.get(txKey);
+        if (disTransaction !== undefined) {
+            logger.warn(`distribution tx [${txKey}] has been recorded`);
+            return;
+        }
+        disTransaction = DistributedTransaction.create({
+            id: tx.blockHeight + '-' + tx.id,
+            txHash: tx.id,
+            from: tx.from,
+            to: tx.to,
+            amount: tx.amount,
+            blockHeight: tx.blockHeight,
             success: true,
         });
-        logger.info(`vest transaction: ${JSON.stringify(disTransaction)}`);
-        let totalDistributed = await TotalDistributed.get(DISTRIBUTION_ADDRESS);
-        if (totalDistributed) {
-            totalDistributed.blockHeight = blockNumber;
-            totalDistributed.amount = (BigInt(totalDistributed.amount) + BigInt(value)).toString();
-        } else {
-            totalDistributed = TotalClaimed.create({
-                id: DISTRIBUTION_ADDRESS,
-                blockHeight: blockNumber,
-                amount: (BigInt(value)).toString()
+        logger.info(`vest transaction ${disTransaction.from}, amount ${disTransaction.amount}`);
+        let totalDistributed = await TotalDistributed.get(tx.from);
+        if (totalDistributed === undefined) {
+            totalDistributed = TotalDistributed.create({
+                id: tx.from,
+                amount: tx.amount,
+                blockHeight: tx.blockHeight,
             });
         }
-        logger.info(`totalDistributed: ${JSON.stringify(totalDistributed)}`);
+        totalDistributed.amount = (BigInt(totalDistributed.amount) + BigInt(tx.amount)).toString();
+
         await Promise.all([
             disTransaction.save(),
             totalDistributed.save(),
         ]);
         return
+    } catch (e) {
+        logger.error(`handle account[${tx.from}] total distribution error: %o`, e);
+        throw e;
     }
+}
 
-    if (isClaimTx(to)) {
-        logger.info(`handle claim call ${blockNumber}-${txHash}`)
-        const claimedTransaction = ClaimedTransaction.create({
-            id: blockNumber + '-' + idx,
-            txHash,
-            from,
-            to,
-            value,
-            func: undefined,
-            blockHeight: blockNumber,
+async function handleClaim(tx: Tx): Promise<void> {
+    try {
+        logger.info(`handle claim call ${tx.blockHeight}-${tx.id}`)
+        let txKey = tx.blockHeight + '-' + tx.id
+        let claimTransaction = await ClaimedTransaction.get(txKey);
+        if (claimTransaction !== undefined) {
+            logger.warn(`claim tx [${txKey}] has been recorded`);
+            return;
+        }
+        claimTransaction = ClaimedTransaction.create({
+            id: txKey,
+            txHash: tx.id,
+            from: tx.from,
+            to: tx.to,
+            amount: tx.amount,
+            blockHeight: tx.blockHeight,
             success: true,
         });
-        logger.info(`claim transaction: ${JSON.stringify(claimedTransaction)}`);
-        let totalClaimed = await TotalClaimed.get(DISTRIBUTION_ADDRESS);
-        if (totalClaimed) {
-            totalClaimed.blockHeight = blockNumber;
-            totalClaimed.amount = (BigInt(totalClaimed.amount) + BigInt(value)).toString();
-        } else {
+        logger.info(`claim transaction ${tx.to}, amount ${claimTransaction.amount}`);
+        let totalClaimed = await TotalClaimed.get(tx.to);
+        if (totalClaimed === undefined) {
             totalClaimed = TotalClaimed.create({
-                id: DISTRIBUTION_ADDRESS,
-                blockHeight: blockNumber,
-                amount: (BigInt(value)).toString()
+                id: tx.to,
+                amount: tx.amount,
+                blockHeight: tx.blockHeight,
             });
         }
-        logger.info(`totalClaimed: ${JSON.stringify(totalClaimed)}`);
+        totalClaimed.amount = (BigInt(totalClaimed.amount) + BigInt(tx.amount)).toString();
 
         await Promise.all([
-            claimedTransaction.save(),
+            claimTransaction.save(),
             totalClaimed.save(),
         ]);
+        return
+    } catch (e) {
+        logger.error(`handle account[${tx.to}] total claim error: %o`, e);
+        throw e;
+    }
+}
+
+export async function handleTransferEvent(event: SubstrateEvent): Promise<void> {
+    const {
+        event: {
+            data: [signer, dest, value]
+        },
+    } = event;
+    const from = signer.toString()
+    const to = dest.toString()
+    const isDistribution = isDistributionTx(from);
+    const isClaim = isClaimTx(to);
+
+    if (!isDistribution && !isClaim) return
+
+    const idx = event.idx;
+    const blockNumber = event.block.block.header.number.toNumber();
+    const txHash = event.extrinsic.extrinsic.hash.toString()
+    const amount = value.toString()
+
+    const tx: Tx = {
+        id: `${txHash}-${idx}`,
+        from,
+        to,
+        amount,
+        blockHeight: blockNumber,
+        timestamp: event.block.timestamp,
+    };
+    if (isDistribution) {
+        await handleDistribution(tx);
+    } else if (isClaim) {
+        await handleClaim(tx);
     }
 }
 
@@ -112,7 +156,6 @@ export async function handleFrontierEvmCall(call: FrontierEvmCall<TransferCallAr
     if (!call.hash || !call.success) return
     logger.info(`handle distribution call ${call.blockNumber}-${call.hash}`)
 
-    const func = call.data ? hexDataSlice(call.data, 0, 4) : undefined
     // Collect distribute transaction
     if (isDistributionTx(call.from)) {
         const disTransaction = DistributedTransaction.create({
@@ -120,8 +163,7 @@ export async function handleFrontierEvmCall(call: FrontierEvmCall<TransferCallAr
             txHash: call.hash,
             from: call.from,
             to: call.to,
-            value: call.value.toString(),
-            func,
+            amount: call.value.toString(),
             blockHeight: call.blockNumber,
             success: call.success,
         });
@@ -154,8 +196,7 @@ export async function handleFrontierEvmCall(call: FrontierEvmCall<TransferCallAr
             txHash: call.hash,
             from: call.from,
             to: call.to,
-            value: call.value.toString(),
-            func,
+            amount: call.value.toString(),
             blockHeight: call.blockNumber,
             success: call.success,
         });
